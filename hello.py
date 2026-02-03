@@ -335,7 +335,7 @@ def fetch_single_product(nvmid: str, cookies: str, headers: dict) -> dict:
 
 
 @app.route("/extract_productdata_multi", methods=["POST"])
-def extract_productdata_multi():
+async def extract_productdata_multi():
     """
     여러 nvmid를 받아서 비동기 병렬로 상품 정보를 추출하는 엔드포인트
     Request Body: { "nvmids": ["str", ...], "cookies": "string", "headers": "dict" }
@@ -372,15 +372,10 @@ def extract_productdata_multi():
                     key, value = item.strip().split("=", 1)
                     cookie_dict[key] = value
 
-        # 비동기로 병렬 처리 실행
-        async def process_all():
-            async with aiohttp.ClientSession() as session:
-                tasks = [fetch_single_product_async(session, nvmid, cookie_dict, headers) for nvmid in nvmids]
-                results = await asyncio.gather(*tasks)
-                return results
-
-        # 이벤트 루프에서 비동기 함수 실행
-        results = asyncio.run(process_all())
+        # 비동기로 병렬 처리 실행 (Flask 3.0+ async route 지원)
+        async with aiohttp.ClientSession() as session:
+            tasks = [fetch_single_product_async(session, nvmid, cookie_dict, headers) for nvmid in nvmids]
+            results = await asyncio.gather(*tasks)
 
         # 성공/실패 통계
         success_count = sum(1 for r in results if r["success"])

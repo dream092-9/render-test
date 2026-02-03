@@ -119,14 +119,14 @@ def extract_productdata():
         }), 500
 
 
-async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str, cookie_dict: dict, headers: dict) -> dict:
+async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str, cookie_string: str, headers: dict) -> dict:
     """
     단일 상품 정보를 가져오는 비동기 함수
 
     Args:
         session (aiohttp.ClientSession): aiohttp 세션
         nvmid (str): 상품 NVM ID
-        cookie_dict (dict): 변환된 쿠키 딕셔너리
+        cookie_string (str): 쿠키 문자열 (그대로 헤더에 사용)
         headers (dict): 헤더 딕셔너리
 
     Returns:
@@ -139,8 +139,12 @@ async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str,
             "nvMid": nvmid
         }
 
+        # 쿠키를 Cookie 헤더에 직접 추가 (aiohttp는 이 방식을 선호)
+        request_headers = headers.copy()
+        request_headers["Cookie"] = cookie_string
+
         # API 요청 (비동기)
-        async with session.get(url, headers=headers, cookies=cookie_dict, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+        async with session.get(url, headers=request_headers, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
             if response.status != 200:
                 return {
                     "nvmid": nvmid,
@@ -364,17 +368,10 @@ async def extract_productdata_multi():
             "Referer": "https://sell.smartstore.naver.com/",
         }
 
-        # 쿠키 미리 변환
-        cookie_dict = {}
-        if isinstance(cookies, str):
-            for item in cookies.split(";"):
-                if "=" in item:
-                    key, value = item.strip().split("=", 1)
-                    cookie_dict[key] = value
-
         # 비동기로 병렬 처리 실행 (Flask 3.0+ async route 지원)
+        # 쿠키를 문자열 그대로 전달 (aiohttp는 Cookie 헤더로 처리)
         async with aiohttp.ClientSession() as session:
-            tasks = [fetch_single_product_async(session, nvmid, cookie_dict, headers) for nvmid in nvmids]
+            tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmids]
             results = await asyncio.gather(*tasks)
 
         # 성공/실패 통계

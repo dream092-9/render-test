@@ -5,13 +5,14 @@ Render에 배포되는 Python 엔드포인트: GET / → "hello, world"
 배포 후 호출: RENDER_SERVICE_ID, RENDER_SERVICE_URL 설정 후 python hello.py --deploy-and-call
 """
 import argparse
+import asyncio
 import json
 import os
 import subprocess
 import sys
 import time
+import aiohttp
 import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import Flask, request, jsonify
 
@@ -116,6 +117,75 @@ def extract_productdata():
             "success": False,
             "error": f"서버 오류: {str(e)}"
         }), 500
+
+
+async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str, cookie_dict: dict, headers: dict) -> dict:
+    """
+    단일 상품 정보를 가져오는 비동기 함수
+
+    Args:
+        session (aiohttp.ClientSession): aiohttp 세션
+        nvmid (str): 상품 NVM ID
+        cookie_dict (dict): 변환된 쿠키 딕셔너리
+        headers (dict): 헤더 딕셔너리
+
+    Returns:
+        dict: {nvmid: str, success: bool, product: dict or None, error: str or None}
+    """
+    try:
+        url = "https://sell.smartstore.naver.com/api/product/shared/product-search-popular"
+        params = {
+            "_action": "productSearchPopularByCategory",
+            "nvMid": nvmid
+        }
+
+        # API 요청 (비동기)
+        async with session.get(url, headers=headers, cookies=cookie_dict, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            if response.status != 200:
+                return {
+                    "nvmid": nvmid,
+                    "success": False,
+                    "product": None,
+                    "error": f"API 요청 실패: 상태 코드 {response.status}"
+                }
+
+            result = await response.json()
+
+            # 결과 파싱
+            if result and isinstance(result, dict) and "result" in result:
+                product_data = result["result"]
+                if isinstance(product_data, dict):
+                    # 날짜 포맷팅
+                    od = product_data.get("openDate")
+                    if isinstance(od, str) and "T" in od:
+                        try:
+                            product_data["openDateFormatted"] = od.replace("T", " ").split("+")[0]
+                        except Exception:
+                            product_data["openDateFormatted"] = od
+                    else:
+                        product_data["openDateFormatted"] = od if od else ""
+
+                    return {
+                        "nvmid": nvmid,
+                        "success": True,
+                        "product": product_data,
+                        "error": None
+                    }
+
+            return {
+                "nvmid": nvmid,
+                "success": False,
+                "product": None,
+                "error": "결과를 찾을 수 없습니다."
+            }
+
+    except Exception as e:
+        return {
+            "nvmid": nvmid,
+            "success": False,
+            "product": None,
+            "error": f"서버 오류: {str(e)}"
+        }
 
 
 def fetch_single_product_with_dict(nvmid: str, cookie_dict: dict, headers: dict) -> dict:
@@ -267,7 +337,7 @@ def fetch_single_product(nvmid: str, cookies: str, headers: dict) -> dict:
 @app.route("/extract_productdata_multi", methods=["POST"])
 def extract_productdata_multi():
     """
-    여러 nvmid를 받아서 병렬로 상품 정보를 추출하는 엔드포인트
+    여러 nvmid를 받아서 비동기 병렬로 상품 정보를 추출하는 엔드포인트
     Request Body: { "nvmids": ["str", ...], "cookies": "string", "headers": "dict" }
     """
     try:
@@ -294,7 +364,7 @@ def extract_productdata_multi():
             "Referer": "https://sell.smartstore.naver.com/",
         }
 
-        # 쿠키 미리 변환 (모든 스레드에서 공유)
+        # 쿠키 미리 변환
         cookie_dict = {}
         if isinstance(cookies, str):
             for item in cookies.split(";"):
@@ -302,21 +372,15 @@ def extract_productdata_multi():
                     key, value = item.strip().split("=", 1)
                     cookie_dict[key] = value
 
-        # 병렬 처리 (완전 동시 요청)
-        max_workers = len(nvmids)  # 모든 nvmid를 동시에 처리
-        results = []
+        # 비동기로 병렬 처리 실행
+        async def process_all():
+            async with aiohttp.ClientSession() as session:
+                tasks = [fetch_single_product_async(session, nvmid, cookie_dict, headers) for nvmid in nvmids]
+                results = await asyncio.gather(*tasks)
+                return results
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Future 객체 생성 - 변환된 쿠키 전달
-            future_to_nvmid = {
-                executor.submit(fetch_single_product_with_dict, nvmid, cookie_dict, headers): nvmid
-                for nvmid in nvmids
-            }
-
-            # 결과 수집
-            for future in as_completed(future_to_nvmid):
-                result = future.result()
-                results.append(result)
+        # 이벤트 루프에서 비동기 함수 실행
+        results = asyncio.run(process_all())
 
         # 성공/실패 통계
         success_count = sum(1 for r in results if r["success"])

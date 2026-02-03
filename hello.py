@@ -118,6 +118,75 @@ def extract_productdata():
         }), 500
 
 
+def fetch_single_product_with_dict(nvmid: str, cookie_dict: dict, headers: dict) -> dict:
+    """
+    단일 상품 정보를 가져오는 함수 (병렬 처리용 - 쿠키 미리 변환)
+
+    Args:
+        nvmid (str): 상품 NVM ID
+        cookie_dict (dict): 변환된 쿠키 딕셔너리
+        headers (dict): 헤더 딕셔너리
+
+    Returns:
+        dict: {nvmid: str, success: bool, product: dict or None, error: str or None}
+    """
+    try:
+        url = "https://sell.smartstore.naver.com/api/product/shared/product-search-popular"
+        params = {
+            "_action": "productSearchPopularByCategory",
+            "nvMid": nvmid
+        }
+
+        # API 요청
+        response = requests.get(url, headers=headers, cookies=cookie_dict, params=params, timeout=10)
+
+        if response.status_code != 200:
+            return {
+                "nvmid": nvmid,
+                "success": False,
+                "product": None,
+                "error": f"API 요청 실패: 상태 코드 {response.status_code}"
+            }
+
+        result = response.json()
+
+        # 결과 파싱
+        if result and isinstance(result, dict) and "result" in result:
+            product_data = result["result"]
+            if isinstance(product_data, dict):
+                # 날짜 포맷팅
+                od = product_data.get("openDate")
+                if isinstance(od, str) and "T" in od:
+                    try:
+                        product_data["openDateFormatted"] = od.replace("T", " ").split("+")[0]
+                    except Exception:
+                        product_data["openDateFormatted"] = od
+                else:
+                    product_data["openDateFormatted"] = od if od else ""
+
+                return {
+                    "nvmid": nvmid,
+                    "success": True,
+                    "product": product_data,
+                    "error": None
+                }
+
+        return {
+            "nvmid": nvmid,
+            "success": False,
+            "product": None,
+            "error": "결과를 찾을 수 없습니다."
+        }
+
+    except Exception as e:
+        return {
+            "nvmid": nvmid,
+            "success": False,
+            "product": None,
+            "error": f"서버 오류: {str(e)}"
+        }
+
+
 def fetch_single_product(nvmid: str, cookies: str, headers: dict) -> dict:
     """
     단일 상품 정보를 가져오는 함수 (병렬 처리용)
@@ -225,14 +294,22 @@ def extract_productdata_multi():
             "Referer": "https://sell.smartstore.naver.com/",
         }
 
+        # 쿠키 미리 변환 (모든 스레드에서 공유)
+        cookie_dict = {}
+        if isinstance(cookies, str):
+            for item in cookies.split(";"):
+                if "=" in item:
+                    key, value = item.strip().split("=", 1)
+                    cookie_dict[key] = value
+
         # 병렬 처리 (완전 동시 요청)
         max_workers = len(nvmids)  # 모든 nvmid를 동시에 처리
         results = []
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Future 객체 생성
+            # Future 객체 생성 - 변환된 쿠키 전달
             future_to_nvmid = {
-                executor.submit(fetch_single_product, nvmid, cookies, headers): nvmid
+                executor.submit(fetch_single_product_with_dict, nvmid, cookie_dict, headers): nvmid
                 for nvmid in nvmids
             }
 

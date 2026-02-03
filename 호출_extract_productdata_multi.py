@@ -175,9 +175,18 @@ def call_extract_productdata_multi(
                 success_results = [r for r in results if r["success"]]
                 fail_results = [r for r in results if not r["success"]]
 
+                # 성공/실패 카운트 출력
+                print(f"\n{'='*50}")
+                print(f"[결과 요약]")
+                print(f"  총 요청: {result.get('total')}개")
+                print(f"  성공: {result.get('success_count')}개")
+                print(f"  실패: {result.get('fail_count')}개")
+                print(f"  성공률: {result.get('success_count') / result.get('total') * 100:.1f}%")
+                print(f"{'='*50}\n")
+
                 # 성공한 상품 정보 출력 (처음 5개)
                 if success_results:
-                    print(f"\n[성공한 상품 예시 (처음 5개)]")
+                    print(f"[성공한 상품 예시 (처음 5개)]")
                     for i, r in enumerate(success_results[:5]):
                         product = r["product"]
                         print(f"  {i+1}. NvMid: {r['nvmid']}")
@@ -187,15 +196,14 @@ def call_extract_productdata_multi(
 
                 # 실패한 경우 에러 출력
                 if fail_results:
-                    print(f"\n[실패한 항목 (처음 5개)]")
+                    print(f"[실패한 항목 (처음 5개)]")
                     for i, r in enumerate(fail_results[:5]):
                         print(f"  {i+1}. NvMid: {r['nvmid']}")
                         print(f"     에러: {r.get('error', 'Unknown')}")
                         print()
 
-                # 전체 결과 JSON 저장
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_filename = Path(output_dir) / f"productdata_multi_{timestamp}.json"
+                # 전체 결과 JSON 저장 (zz.json)
+                output_filename = Path(output_dir) / "zz.json"
 
                 with open(output_filename, 'w', encoding='utf-8') as f:
                     json.dump(result, f, ensure_ascii=False, indent=2)

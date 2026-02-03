@@ -1,0 +1,9 @@
+# Render Blueprint: hello, world Python 웹 서비스
+# 사용법: 이 폴더를 Git 저장소에 넣고 Render 대시보드에서 New > Blueprint로 연결
+services:
+  - type: web
+    name: hello-world
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn hello:app --bind 0.0.0.0:$PORT

@@ -10,8 +10,9 @@ import os
 import subprocess
 import sys
 import time
+import requests
 
-from flask import Flask
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
@@ -24,6 +25,86 @@ def index():
 @app.route("/health")
 def health():
     return {"status": "ok"}, 200
+
+
+@app.route("/extract_productdata", methods=["POST"])
+def extract_productdata():
+    """
+    nvmid, cookies, headers를 받아서 상품 정보를 추출하는 엔드포인트
+    Request Body: { "nvmid": "string", "cookies": "string", "headers": "dict" }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "JSON body가 필요합니다."}), 400
+
+        nvmid = data.get("nvmid")
+        cookies = data.get("cookies")
+        headers = data.get("headers")
+
+        if not nvmid:
+            return jsonify({"success": False, "error": "nvmid가 필요합니다."}), 400
+        if not cookies:
+            return jsonify({"success": False, "error": "cookies가 필요합니다."}), 400
+        if not headers:
+            return jsonify({"success": False, "error": "headers가 필요합니다."}), 400
+
+        # 네이버 인기상품 API 호출
+        url = f"https://search.shopping.naver.com/api/category/popularProduct?keyword=&nvmId={nvmid}"
+
+        # 쿠키 문자열을 딕셔너리로 변환
+        cookie_dict = {}
+        if isinstance(cookies, str):
+            for item in cookies.split(";"):
+                if "=" in item:
+                    key, value = item.strip().split("=", 1)
+                    cookie_dict[key] = value
+
+        # API 요청
+        response = requests.get(url, headers=headers, cookies=cookie_dict, timeout=10)
+
+        if response.status_code != 200:
+            return jsonify({
+                "success": False,
+                "error": f"API 요청 실패: 상태 코드 {response.status_code}"
+            }), 500
+
+        result = response.json()
+
+        # 결과 파싱
+        products = []
+        if result and isinstance(result, dict) and "result" in result:
+            product_data = result["result"]
+            if isinstance(product_data, dict):
+                # 날짜 포맷팅
+                od = product_data.get("openDate")
+                if isinstance(od, str) and "T" in od:
+                    try:
+                        product_data["openDateFormatted"] = od.replace("T", " ").split("+")[0]
+                    except Exception:
+                        product_data["openDateFormatted"] = od
+                else:
+                    product_data["openDateFormatted"] = od if od else ""
+
+                products = [product_data]
+
+        if not products:
+            return jsonify({
+                "success": False,
+                "error": "결과를 찾을 수 없습니다."
+            }), 404
+
+        return jsonify({
+            "success": True,
+            "products": products,
+            "nvmid": nvmid,
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"서버 오류: {str(e)}"
+        }), 500
 
 
 def get_service_url_from_cli(service_id: str) -> str | None:

@@ -140,7 +140,7 @@ async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str,
         }
 
         # 쿠키를 Cookie 헤더에 직접 추가 (aiohttp는 이 방식을 선호)
-        request_headers = headers.copy()
+        request_headers = dict(headers)  # 안전하게 딕셔너리 복사
         request_headers["Cookie"] = cookie_string
 
         # API 요청 (비동기)

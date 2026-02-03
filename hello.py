@@ -344,7 +344,7 @@ def extract_productdata_multi():
     여러 nvmid를 받아서 완전 병렬로 상품 정보를 추출하는 엔드포인트
     Request Body: { "nvmids": ["str", ...], "cookies": "string", "headers": "dict" }
 
-    aiohttp를 사용하여 대규모 병렬 처리 지원 (최대 1000개까지 테스트 완료)
+    aiohttp를 사용하여 대규모 병렬 처리 지원 (최대 500개 동시 처리 가능)
     Flask[async] 없이 동기 route에서 내부적으로 asyncio 실행
     """
     try:
@@ -376,8 +376,8 @@ def extract_productdata_multi():
         async def run_parallel():
             # aiohttp 커넥터 설정 (대규모 병렬 처리를 위한 최적화)
             connector = aiohttp.TCPConnector(
-                limit=100,  # 최대 연결 수 (동시에 100개까지 처리)
-                limit_per_host=50,  # 호스트당 최대 연결 수
+                limit=500,  # 최대 연결 수 (동시에 500개까지 처리)
+                limit_per_host=250,  # 호스트당 최대 연결 수
                 ttl_dns_cache=300,  # DNS 캐시 TTL
             )
 

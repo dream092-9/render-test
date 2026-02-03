@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import Flask, request, jsonify
 
@@ -108,6 +109,148 @@ def extract_productdata():
             "success": True,
             "products": products,
             "nvmid": nvmid,
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"서버 오류: {str(e)}"
+        }), 500
+
+
+def fetch_single_product(nvmid: str, cookies: str, headers: dict) -> dict:
+    """
+    단일 상품 정보를 가져오는 함수 (병렬 처리용)
+
+    Args:
+        nvmid (str): 상품 NVM ID
+        cookies (str): 쿠키 문자열
+        headers (dict): 헤더 딕셔너리
+
+    Returns:
+        dict: {nvmid: str, success: bool, product: dict or None, error: str or None}
+    """
+    try:
+        url = "https://sell.smartstore.naver.com/api/product/shared/product-search-popular"
+        params = {
+            "_action": "productSearchPopularByCategory",
+            "nvMid": nvmid
+        }
+
+        # 쿠키 문자열을 딕셔너리로 변환
+        cookie_dict = {}
+        if isinstance(cookies, str):
+            for item in cookies.split(";"):
+                if "=" in item:
+                    key, value = item.strip().split("=", 1)
+                    cookie_dict[key] = value
+
+        # API 요청
+        response = requests.get(url, headers=headers, cookies=cookie_dict, params=params, timeout=10)
+
+        if response.status_code != 200:
+            return {
+                "nvmid": nvmid,
+                "success": False,
+                "product": None,
+                "error": f"API 요청 실패: 상태 코드 {response.status_code}"
+            }
+
+        result = response.json()
+
+        # 결과 파싱
+        if result and isinstance(result, dict) and "result" in result:
+            product_data = result["result"]
+            if isinstance(product_data, dict):
+                # 날짜 포맷팅
+                od = product_data.get("openDate")
+                if isinstance(od, str) and "T" in od:
+                    try:
+                        product_data["openDateFormatted"] = od.replace("T", " ").split("+")[0]
+                    except Exception:
+                        product_data["openDateFormatted"] = od
+                else:
+                    product_data["openDateFormatted"] = od if od else ""
+
+                return {
+                    "nvmid": nvmid,
+                    "success": True,
+                    "product": product_data,
+                    "error": None
+                }
+
+        return {
+            "nvmid": nvmid,
+            "success": False,
+            "product": None,
+            "error": "결과를 찾을 수 없습니다."
+        }
+
+    except Exception as e:
+        return {
+            "nvmid": nvmid,
+            "success": False,
+            "product": None,
+            "error": f"서버 오류: {str(e)}"
+        }
+
+
+@app.route("/extract_productdata_multi", methods=["POST"])
+def extract_productdata_multi():
+    """
+    여러 nvmid를 받아서 병렬로 상품 정보를 추출하는 엔드포인트
+    Request Body: { "nvmids": ["str", ...], "cookies": "string", "headers": "dict" }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "JSON body가 필요합니다."}), 400
+
+        nvmids = data.get("nvmids")
+        cookies = data.get("cookies")
+        client_headers = data.get("headers", {})
+
+        if not nvmids:
+            return jsonify({"success": False, "error": "nvmids가 필요합니다."}), 400
+        if not isinstance(nvmids, list):
+            return jsonify({"success": False, "error": "nvmids는 리스트여야 합니다."}), 400
+        if not cookies:
+            return jsonify({"success": False, "error": "cookies가 필요합니다."}), 400
+
+        # 헤더 설정
+        headers = client_headers if isinstance(client_headers, dict) and client_headers else {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Referer": "https://sell.smartstore.naver.com/",
+        }
+
+        # 병렬 처리 (최대 10개 동시 요청)
+        max_workers = min(10, len(nvmids))
+        results = []
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Future 객체 생성
+            future_to_nvmid = {
+                executor.submit(fetch_single_product, nvmid, cookies, headers): nvmid
+                for nvmid in nvmids
+            }
+
+            # 결과 수집
+            for future in as_completed(future_to_nvmid):
+                result = future.result()
+                results.append(result)
+
+        # 성공/실패 통계
+        success_count = sum(1 for r in results if r["success"])
+        fail_count = len(results) - success_count
+
+        return jsonify({
+            "success": True,
+            "total": len(nvmids),
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "results": results
         }), 200
 
     except Exception as e:

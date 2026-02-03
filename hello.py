@@ -30,8 +30,8 @@ def health():
 @app.route("/extract_productdata", methods=["POST"])
 def extract_productdata():
     """
-    nvmid, cookies를 받아서 상품 정보를 추출하는 엔드포인트
-    Request Body: { "nvmid": "string", "cookies": "string" }
+    nvmid, cookies, headers를 받아서 상품 정보를 추출하는 엔드포인트
+    Request Body: { "nvmid": "string", "cookies": "string", "headers": "dict" }
     """
     try:
         data = request.get_json()
@@ -40,6 +40,7 @@ def extract_productdata():
 
         nvmid = data.get("nvmid")
         cookies = data.get("cookies")
+        client_headers = data.get("headers", {})
 
         if not nvmid:
             return jsonify({"success": False, "error": "nvmid가 필요합니다."}), 400
@@ -61,8 +62,8 @@ def extract_productdata():
                     key, value = item.strip().split("=", 1)
                     cookie_dict[key] = value
 
-        # 기본 헤더 설정
-        headers = {
+        # 헤더 설정 (클라이언트에서 받은 헤더 사용, 없으면 기본 헤더)
+        headers = client_headers if isinstance(client_headers, dict) and client_headers else {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",

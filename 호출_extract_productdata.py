@@ -31,19 +31,50 @@ def load_cookies_from_file(cookies_path: Path) -> str:
         with open(cookies_path, 'r', encoding='utf-8') as f:
             cookies_data = json.load(f)
 
-        # JSON 형식에 따라 처리
-        if isinstance(cookies_data, list):
-            # 리스트 형식: [{"name": "key", "value": "val"}, ...]
-            cookie_items = [f"{item['name']}={item['value']}" for item in cookies_data]
-            return "; ".join(cookie_items)
-        elif isinstance(cookies_data, dict):
-            # 딕셔너리 형식: {"key": "value", ...}
+        # cookies2.json 구조: cookies.string_format 또는 cookies.dict_format
+        cookies_info = cookies_data.get('cookies', {})
+        if isinstance(cookies_info, dict):
+            # string_format 우선
+            cookie_string = cookies_info.get('string_format', '')
+            if cookie_string:
+                return cookie_string
+            # dict_format 대안
+            dict_format = cookies_info.get('dict_format', {})
+            if dict_format:
+                return "; ".join([f"{k}={v}" for k, v in dict_format.items()])
+
+        # 이전 형식 호환 (직접 딕셔너리)
+        if isinstance(cookies_data, dict):
             return "; ".join([f"{k}={v}" for k, v in cookies_data.items()])
-        else:
-            return ""
+
+        return ""
     except Exception as e:
         print(f"[ERROR] 쿠키 파일 로드 실패: {e}")
         return ""
+
+
+def load_headers_from_file(cookies_path: Path) -> dict:
+    """
+    cookies2.json 파일에서 헤더 딕셔너리를 로드합니다.
+
+    Args:
+        cookies_path (Path): 쿠키 파일 경로
+
+    Returns:
+        dict: 헤더 딕셔너리
+    """
+    try:
+        with open(cookies_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        headers = data.get('headers', {})
+        if isinstance(headers, dict) and headers:
+            return headers
+        else:
+            return {}
+    except Exception as e:
+        print(f"[ERROR] 헤더 로드 실패: {e}")
+        return {}
 
 
 def call_extract_productdata(
@@ -75,6 +106,14 @@ def call_extract_productdata(
         return
     print(f"[OK] 쿠키 로드 완료 ({len(cookies)} bytes)\n")
 
+    # 헤더 로드
+    print("[INFO] 헤더 로드 중...")
+    headers = load_headers_from_file(cookies_path)
+    if not headers:
+        print("[WARN] 헤더가 비어있습니다.")
+    else:
+        print(f"[OK] 헤더 로드 완료 ({len(headers)} items)\n")
+
     # API 요청
     print("[INFO] POST 요청 전송 중...")
     try:
@@ -82,7 +121,8 @@ def call_extract_productdata(
             f"{service_url}/extract_productdata",
             json={
                 "nvmid": nvmid,
-                "cookies": cookies
+                "cookies": cookies,
+                "headers": headers
             },
             headers={"Content-Type": "application/json"},
             timeout=30

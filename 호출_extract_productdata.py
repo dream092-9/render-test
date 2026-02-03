@@ -143,11 +143,18 @@ def call_extract_productdata(
                 if products:
                     product = products[0]
                     print(f"\n[상품 정보]")
-                    print(f"  - 상품명: {product.get('productName', 'N/A')}")
-                    print(f"  - 브랜드: {product.get('brandName', 'N/A')}")
-                    print(f"  - 카테고리: {product.get('category1Name', 'N/A')}")
+                    print(f"  - 상품명: {product.get('productTitle', 'N/A')}")
+                    print(f"  - 이미지: {product.get('imageUrl', 'N/A')}")
+                    print(f"  - 몰 이름: {product.get('mallName', 'N/A')}")
                     print(f"  - 등록일: {product.get('openDateFormatted', 'N/A')}")
-                    print(f"  - 가격: {product.get('price', 'N/A')}")
+                    print(f"  - 리뷰 수: {product.get('reviewCount', 'N/A')}")
+                    print(f"  - 카테고리: {product.get('category', 'N/A')}")
+
+                    # 전체 데이터도 출력
+                    print(f"\n[전체 데이터]")
+                    for key, value in product.items():
+                        if key not in ['openDateFormatted']:  # 중복 필드 제외
+                            print(f"  {key}: {value}")
             else:
                 print(f"[ERROR] 추출 실패: {result.get('error', '알 수 없는 오류')}")
         else:

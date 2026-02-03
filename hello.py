@@ -30,8 +30,8 @@ def health():
 @app.route("/extract_productdata", methods=["POST"])
 def extract_productdata():
     """
-    nvmid, cookies, headers를 받아서 상품 정보를 추출하는 엔드포인트
-    Request Body: { "nvmid": "string", "cookies": "string", "headers": "dict" }
+    nvmid, cookies를 받아서 상품 정보를 추출하는 엔드포인트
+    Request Body: { "nvmid": "string", "cookies": "string" }
     """
     try:
         data = request.get_json()
@@ -40,14 +40,11 @@ def extract_productdata():
 
         nvmid = data.get("nvmid")
         cookies = data.get("cookies")
-        headers = data.get("headers")
 
         if not nvmid:
             return jsonify({"success": False, "error": "nvmid가 필요합니다."}), 400
         if not cookies:
             return jsonify({"success": False, "error": "cookies가 필요합니다."}), 400
-        if not headers:
-            return jsonify({"success": False, "error": "headers가 필요합니다."}), 400
 
         # 네이버 인기상품 API 호출
         url = f"https://search.shopping.naver.com/api/category/popularProduct?keyword=&nvmId={nvmid}"
@@ -59,6 +56,14 @@ def extract_productdata():
                 if "=" in item:
                     key, value = item.strip().split("=", 1)
                     cookie_dict[key] = value
+
+        # 기본 헤더 설정 (z_extract_productdata.py의 SmartStoreNvMidExtractor와 동일)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Referer": "https://search.shopping.naver.com/",
+        }
 
         # API 요청
         response = requests.get(url, headers=headers, cookies=cookie_dict, timeout=10)

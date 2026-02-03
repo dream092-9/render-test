@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Render에 배포된 /extract_productdata 엔드포인트 호출 스크립트
-nvmid는 커맨드 라인 인자로 입력, 쿠키/헤더는 로컬 파일에서 로드
+nvmid는 커맨드 라인 인자로 입력, 쿠키는 로컬 파일에서 로드
 사용법: python 호출_extract_productdata.py <nvmid>
 """
 import sys
@@ -46,36 +46,6 @@ def load_cookies_from_file(cookies_path: Path) -> str:
         return ""
 
 
-def load_headers_from_file(headers_path: Path) -> dict:
-    """
-    headers.json 파일에서 헤더 딕셔너리를 로드합니다.
-
-    Args:
-        headers_path (Path): 헤더 파일 경로
-
-    Returns:
-        dict: 헤더 딕셔너리
-    """
-    try:
-        with open(headers_path, 'r', encoding='utf-8') as f:
-            headers_data = json.load(f)
-
-        if isinstance(headers_data, dict):
-            return headers_data
-        else:
-            return {}
-    except Exception as e:
-        print(f"[WARN] 헤더 파일 로드 실패: {e}")
-        print(f"[WARN] 기본 헤더를 사용합니다.")
-        # 기본 헤더 반환
-        return {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Referer": "https://search.shopping.naver.com/",
-        }
-
-
 def call_extract_productdata(
     nvmid: str,
     service_url: str = "https://hello-world-fo9c.onrender.com",
@@ -87,7 +57,7 @@ def call_extract_productdata(
     Args:
         nvmid (str): 상품 NVM ID
         service_url (str): Render 서비스 URL
-        scripts_dir (str): 스크립트 디렉토리 경로 (쿠키/헤더 파일 위치)
+        scripts_dir (str): 스크립트 디렉토리 경로 (쿠키 파일 위치)
     """
     print(f"[START] Render 서비스 호출 중: {service_url}/extract_productdata")
     print(f"[INFO] nvmid: {nvmid}")
@@ -96,7 +66,6 @@ def call_extract_productdata(
     # 경로 설정
     scripts_path = Path(scripts_dir)
     cookies_path = scripts_path / "cookies2.json"
-    headers_path = scripts_path / "headers.json"
 
     # 쿠키 로드
     print("[INFO] 쿠키 로드 중...")
@@ -106,14 +75,6 @@ def call_extract_productdata(
         return
     print(f"[OK] 쿠키 로드 완료 ({len(cookies)} bytes)\n")
 
-    # 헤더 로드
-    print("[INFO] 헤더 로드 중...")
-    headers = load_headers_from_file(headers_path)
-    if not headers:
-        print("[WARN] 헤더가 비어있습니다. 기본 헤더를 사용합니다.")
-    else:
-        print(f"[OK] 헤더 로드 완료 ({len(headers)} items)\n")
-
     # API 요청
     print("[INFO] POST 요청 전송 중...")
     try:
@@ -121,8 +82,7 @@ def call_extract_productdata(
             f"{service_url}/extract_productdata",
             json={
                 "nvmid": nvmid,
-                "cookies": cookies,
-                "headers": headers
+                "cookies": cookies
             },
             headers={"Content-Type": "application/json"},
             timeout=30

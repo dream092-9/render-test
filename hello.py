@@ -225,8 +225,8 @@ def extract_productdata_multi():
             "Referer": "https://sell.smartstore.naver.com/",
         }
 
-        # 병렬 처리 (최대 50개 동시 요청)
-        max_workers = min(50, len(nvmids))
+        # 병렬 처리 (완전 동시 요청)
+        max_workers = len(nvmids)  # 모든 nvmid를 동시에 처리
         results = []
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:

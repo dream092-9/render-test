@@ -46,8 +46,12 @@ def extract_productdata():
         if not cookies:
             return jsonify({"success": False, "error": "cookies가 필요합니다."}), 400
 
-        # 네이버 인기상품 API 호출
-        url = f"https://search.shopping.naver.com/api/category/popularProduct?keyword=&nvmId={nvmid}"
+        # 스마트스토어 인기상품 API 호출 (z_extract_productdata.py와 동일)
+        url = "https://sell.smartstore.naver.com/api/product/shared/product-search-popular"
+        params = {
+            "_action": "productSearchPopularByCategory",
+            "nvMid": nvmid
+        }
 
         # 쿠키 문자열을 딕셔너리로 변환
         cookie_dict = {}
@@ -57,16 +61,16 @@ def extract_productdata():
                     key, value = item.strip().split("=", 1)
                     cookie_dict[key] = value
 
-        # 기본 헤더 설정 (z_extract_productdata.py의 SmartStoreNvMidExtractor와 동일)
+        # 기본 헤더 설정
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Referer": "https://search.shopping.naver.com/",
+            "Referer": "https://sell.smartstore.naver.com/",
         }
 
         # API 요청
-        response = requests.get(url, headers=headers, cookies=cookie_dict, timeout=10)
+        response = requests.get(url, headers=headers, cookies=cookie_dict, params=params, timeout=10)
 
         if response.status_code != 200:
             return jsonify({

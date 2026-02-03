@@ -225,8 +225,8 @@ def extract_productdata_multi():
             "Referer": "https://sell.smartstore.naver.com/",
         }
 
-        # 병렬 처리 (최대 10개 동시 요청)
-        max_workers = min(10, len(nvmids))
+        # 병렬 처리 (최대 50개 동시 요청)
+        max_workers = min(50, len(nvmids))
         results = []
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:

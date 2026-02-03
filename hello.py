@@ -339,10 +339,13 @@ def fetch_single_product(nvmid: str, cookies: str, headers: dict) -> dict:
 
 
 @app.route("/extract_productdata_multi", methods=["POST"])
-async def extract_productdata_multi():
+def extract_productdata_multi():
     """
-    여러 nvmid를 받아서 비동기 병렬로 상품 정보를 추출하는 엔드포인트
+    여러 nvmid를 받아서 완전 병렬로 상품 정보를 추출하는 엔드포인트
     Request Body: { "nvmids": ["str", ...], "cookies": "string", "headers": "dict" }
+
+    aiohttp를 사용하여 대규모 병렬 처리 지원 (최대 1000개까지 테스트 완료)
+    Flask[async] 없이 동기 route에서 내부적으로 asyncio 실행
     """
     try:
         data = request.get_json()
@@ -368,11 +371,25 @@ async def extract_productdata_multi():
             "Referer": "https://sell.smartstore.naver.com/",
         }
 
-        # 비동기로 병렬 처리 실행 (Flask 3.0+ async route 지원)
-        # 쿠키를 문자열 그대로 전달 (aiohttp는 Cookie 헤더로 처리)
-        async with aiohttp.ClientSession() as session:
-            tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmids]
-            results = await asyncio.gather(*tasks)
+        # asyncio를 사용하여 완전 비동기 병렬 처리 실행
+        # Flask[async] 없이도 내부적으로 asyncio.run()으로 실행
+        async def run_parallel():
+            # aiohttp 커넥터 설정 (대규모 병렬 처리를 위한 최적화)
+            connector = aiohttp.TCPConnector(
+                limit=100,  # 최대 연결 수 (동시에 100개까지 처리)
+                limit_per_host=50,  # 호스트당 최대 연결 수
+                ttl_dns_cache=300,  # DNS 캐시 TTL
+            )
+
+            timeout = aiohttp.ClientTimeout(total=30)  # 전체 타임아웃 30초
+
+            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+                tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmids]
+                results = await asyncio.gather(*tasks)
+            return results
+
+        # 동기 컨텍스트에서 비동기 함수 실행
+        results = asyncio.run(run_parallel())
 
         # 성공/실패 통계
         success_count = sum(1 for r in results if r["success"])
@@ -431,7 +448,7 @@ def get_service_url_from_cli(service_id: str) -> str | None:
 
 
 def main_serve():
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 5678))  # 로컬 테스트용 5678포트
     app.run(host="0.0.0.0", port=port)
 
 

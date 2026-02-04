@@ -416,15 +416,11 @@ def extract_productdata_multi():
             detail = s[len("서버 오류:"):].strip()
             return len(detail) == 0
 
-        # asyncio를 사용하여 완전 비동기 병렬 처리 실행
+        # asyncio를 사용하여 batch 단위 병렬 처리 실행 (250개씩)
         async def run_parallel(nvmid_list):
-            # Render 서버 환경에 맞춰 연결 제한 동적 조정
-            import os
-            is_render = os.environ.get("RENDER", "") != "" or os.environ.get("PORT") != "5678"
-
-            # 메모리 안정성을 위한 보수적 병렬 처리 설정
-            max_concurrent = 200   # 전체 동시 연결 수 (메모리 안정성)
-            max_per_host = 200     # 호스트당 동시 연결 수
+            # Render 서버와 로컬 모두 동일한 병렬 처리 설정
+            max_concurrent = 250   # 전체 동시 연결 수
+            max_per_host = 250     # 호스트당 동시 연결 수
 
             connector = aiohttp.TCPConnector(
                 limit=max_concurrent,
@@ -443,12 +439,28 @@ def extract_productdata_multi():
                 tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
                 return list(await asyncio.gather(*tasks))
 
-        # 1차 요청
-        results = asyncio.run(run_parallel(nvmids))
+        # Batch 처리: 250개씩 나누어 순차 처리, batch 간 0.3초 대기
+        batch_size = 250
+        all_results = []
         nvmid_to_index = {nvmid: i for i, nvmid in enumerate(nvmids)}
 
+        for i in range(0, len(nvmids), batch_size):
+            batch_nvmids = nvmids[i:i + batch_size]
+            batch_results = asyncio.run(run_parallel(batch_nvmids))
+            all_results.extend(batch_results)
+
+            # 다음 batch를 위해 0.3초 대기 (마지막 batch는 제외)
+            if i + batch_size < len(nvmids):
+                time.sleep(0.3)  # 동기 함수에서 time 사용
+
+        # 결과 재구성
+        results = [None] * len(nvmids)
+        for result in all_results:
+            idx = nvmid_to_index[result["nvmid"]]
+            results[idx] = result
+
         # 상세 없는 "서버 오류:" 만 있는 실패만 모아서 최대 3번 재시도
-        retry_nvmids = [r["nvmid"] for r in results if not r["success"] and is_retriable_error(r.get("error") or "")]
+        retry_nvmids = [r["nvmid"] for r in results if r and not r["success"] and is_retriable_error(r.get("error") or "")]
         max_retries = 3
         retry_count = 0
 
@@ -460,7 +472,7 @@ def extract_productdata_multi():
                 results[idx] = retry_result
             retry_nvmids = [r["nvmid"] for r in retry_results if not r["success"] and is_retriable_error(r.get("error") or "")]
 
-        success_count = sum(1 for r in results if r["success"])
+        success_count = sum(1 for r in results if r and r["success"])
         fail_count = len(results) - success_count
 
         return jsonify({

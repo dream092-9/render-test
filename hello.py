@@ -371,15 +371,23 @@ def extract_productdata_multi():
             "Referer": "https://sell.smartstore.naver.com/",
         }
 
-        # 상세 없는 "서버 오류:" 만 있는지 여부 (이 경우만 재시도 대상)
+        # 재시도 가능한 에러인지 확인 (속도 제한 452 포함)
         def is_retriable_error(error_str):
             if not error_str or not isinstance(error_str, str):
                 return False
             s = error_str.strip()
-            if not s.startswith("서버 오류:"):
-                return False
-            detail = s[len("서버 오류:"):].strip()
-            return len(detail) == 0
+
+            # "서버 오류:" (상세 없는 경우)
+            if s.startswith("서버 오류:"):
+                detail = s[len("서버 오류:"):].strip()
+                if len(detail) == 0:
+                    return True
+
+            # "API 요청 실패: 상태 코드 452" (속도 제한)
+            if "상태 코드 452" in s or "상태 코드 429" in s:
+                return True
+
+            return False
 
         # asyncio를 사용하여 완전 비동기 병렬 처리 실행
         async def run_parallel(nvmid_list):
@@ -387,27 +395,33 @@ def extract_productdata_multi():
             import os
             is_render = os.environ.get("RENDER", "") != "" or os.environ.get("PORT") != "5678"
 
-            # Render 서버: 최적화된 병렬 처리 설정
+            # Render 서버: 속도 제한 회피를 위해 낮춘 설정
             # 로컬: 높은 병렬 처리 유지
-            max_concurrent = 300 if is_render else 500  # 100 → 300으로 증가
-            max_per_host = 150 if is_render else 250     # 50 → 150으로 증가
+            max_concurrent = 100 if is_render else 500
+            max_per_host = 50 if is_render else 250
 
             connector = aiohttp.TCPConnector(
                 limit=max_concurrent,
                 limit_per_host=max_per_host,
-                ttl_dns_cache=600,  # DNS 캐시 시간 증가
-                enable_cleanup_closed=True,  # 닫힌 연결 정리 활성화
-                force_close=False,  # 연결 재사용
-                keepalive_timeout=30,  # keep-alive 타임아웃
+                ttl_dns_cache=600,
+                enable_cleanup_closed=True,
+                force_close=False,
+                keepalive_timeout=30,
             )
             timeout = aiohttp.ClientTimeout(
                 total=30,
-                connect=10,  # 연결 타임아웃
-                sock_read=10  # 소켓 읽기 타임아웃
+                connect=10,
+                sock_read=10
             )
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
                 tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
-                return list(await asyncio.gather(*tasks))
+                results = list(await asyncio.gather(*tasks))
+
+                # 청크 처리 후 지연 시간 추가 (속도 제한 회피)
+                if is_render and len(nvmid_list) > 100:
+                    await asyncio.sleep(1)  # 1초 지연
+
+                return results
 
         # 1차 요청
         results = asyncio.run(run_parallel(nvmids))

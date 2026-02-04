@@ -387,10 +387,10 @@ def extract_productdata_multi():
             import os
             is_render = os.environ.get("RENDER", "") != "" or os.environ.get("PORT") != "5678"
 
-            # Render 서버: 200 병렬 처리
+            # Render 서버: 낮은 CPU 코어 수에 맞춰 병렬 처리 수 최적화
             # 로컬: 높은 병렬 처리 유지
-            max_concurrent = 200 if is_render else 500
-            max_per_host = 100 if is_render else 250
+            max_concurrent = 100 if is_render else 500
+            max_per_host = 50 if is_render else 250
 
             connector = aiohttp.TCPConnector(
                 limit=max_concurrent,
@@ -407,30 +407,14 @@ def extract_productdata_multi():
             )
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
                 tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
-                # return_exceptions=True: 예외 발생 시 전체 실패 대신 예외 객체 반환
-                return list(await asyncio.gather(*tasks, return_exceptions=True))
+                return list(await asyncio.gather(*tasks))
 
-        # 1차 요청 (전체 한 번에 처리)
+        # 1차 요청
         results = asyncio.run(run_parallel(nvmids))
-
-        # 결과 병합 (순서 보장을 위해 인덱스 사용)
         nvmid_to_index = {nvmid: i for i, nvmid in enumerate(nvmids)}
-        final_results = [None] * len(nvmids)
-        for result in results:
-            # None 체크 및 딕셔너리 구조 확인
-            if result is None:
-                continue
-            # 예외 객체 처리
-            if isinstance(result, BaseException):
-                # 예외 객체는 건너뛰기 (추후 로깅 가능)
-                continue
-            if isinstance(result, dict) and "nvmid" in result:
-                idx = nvmid_to_index.get(result["nvmid"])
-                if idx is not None:
-                    final_results[idx] = result
 
         # 상세 없는 "서버 오류:" 만 있는 실패만 모아서 최대 3번 재시도
-        retry_nvmids = [r["nvmid"] for r in final_results if r and not r.get("success", False) and is_retriable_error(r.get("error") or "")]
+        retry_nvmids = [r["nvmid"] for r in results if not r["success"] and is_retriable_error(r.get("error") or "")]
         max_retries = 3
         retry_count = 0
 
@@ -438,16 +422,12 @@ def extract_productdata_multi():
             retry_count += 1
             retry_results = asyncio.run(run_parallel(retry_nvmids))
             for retry_result in retry_results:
-                if retry_result and isinstance(retry_result, dict) and "nvmid" in retry_result:
-                    idx = nvmid_to_index.get(retry_result["nvmid"])
-                    if idx is not None:
-                        final_results[idx] = retry_result
-            retry_nvmids = [r["nvmid"] for r in retry_results if r and not r.get("success", False) and is_retriable_error(r.get("error") or "")]
+                idx = nvmid_to_index[retry_result["nvmid"]]
+                results[idx] = retry_result
+            retry_nvmids = [r["nvmid"] for r in retry_results if not r["success"] and is_retriable_error(r.get("error") or "")]
 
-        results = final_results
-
-        success_count = sum(1 for r in results if r and r.get("success", False))
-        fail_count = sum(1 for r in results if r and not r.get("success", False))
+        success_count = sum(1 for r in results if r["success"])
+        fail_count = len(results) - success_count
 
         return jsonify({
             "success": True,

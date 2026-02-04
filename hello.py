@@ -119,11 +119,12 @@ def extract_productdata():
         }), 500
 
 
-def fetch_single_product_requests(nvmid: str, cookie_string: str, headers: dict) -> dict:
+async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str, cookie_string: str, headers: dict) -> dict:
     """
-    단일 상품 정보를 가져오는 함수 (requests 사용 - 로컬 서버와 동일)
+    단일 상품 정보를 가져오는 비동기 함수
 
     Args:
+        session (aiohttp.ClientSession): aiohttp 세션
         nvmid (str): 상품 NVM ID
         cookie_string (str): 쿠키 문자열
         headers (dict): 헤더 딕셔너리
@@ -138,7 +139,7 @@ def fetch_single_product_requests(nvmid: str, cookie_string: str, headers: dict)
             "nvMid": nvmid
         }
 
-        # 쿠키 문자열을 딕셔너리로 변환 (로컬 서버와 동일)
+        # 쿠키 문자열을 딕셔너리로 변환 (requests와 동일한 방식)
         cookie_dict = {}
         if isinstance(cookie_string, str):
             for item in cookie_string.split(";"):
@@ -146,22 +147,70 @@ def fetch_single_product_requests(nvmid: str, cookie_string: str, headers: dict)
                     key, value = item.strip().split("=", 1)
                     cookie_dict[key] = value
 
-        # API 요청 (requests - 로컬 서버와 완전히 동일)
-        response = requests.get(url, headers=headers, cookies=cookie_dict, params=params, timeout=10)
+        # API 요청 (비동기) - 쿠키를 cookies 파라미터로 전달
+        async with session.get(url, headers=headers, params=params, cookies=cookie_dict, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            if response.status != 200:
+                return {
+                    "nvmid": nvmid,
+                    "success": False,
+                    "product": None,
+                    "error": f"API 요청 실패: 상태 코드 {response.status}"
+                }
 
-        if response.status_code != 200:
-            return {
-                "nvmid": nvmid,
-                "success": False,
-                "product": None,
-                "error": f"API 요청 실패: 상태 코드 {response.status_code}"
-            }
+            # 텍스트로 먼저 읽기 (JSON 파싱 에러 대응)
+            text = await response.text()
 
-        # JSON 파싱
-        try:
-            result = response.json()
-        except (json.JSONDecodeError, ValueError):
-            # JSON 파싱 실패해도 200 응답이면 성공 처리 (빈 product)
+            # 빈 응답이거나 JSON이 아닌 경우 빈 product로 성공 처리
+            if not text or text.strip() == "":
+                return {
+                    "nvmid": nvmid,
+                    "success": True,
+                    "product": {
+                        "productTitle": "",
+                        "mallName": "",
+                        "openDateFormatted": ""
+                    },
+                    "error": None
+                }
+
+            # JSON 파싱 시도
+            try:
+                result = json.loads(text)
+            except (json.JSONDecodeError, ValueError):
+                # JSON 파싱 실패해도 200 응답이면 성공 처리 (빈 product)
+                return {
+                    "nvmid": nvmid,
+                    "success": True,
+                    "product": {
+                        "productTitle": "",
+                        "mallName": "",
+                        "openDateFormatted": ""
+                    },
+                    "error": None
+                }
+
+            # 결과 파싱
+            if result and isinstance(result, dict) and "result" in result:
+                product_data = result["result"]
+                if isinstance(product_data, dict):
+                    # 날짜 포맷팅
+                    od = product_data.get("openDate")
+                    if isinstance(od, str) and "T" in od:
+                        try:
+                            product_data["openDateFormatted"] = od.replace("T", " ").split("+")[0]
+                        except Exception:
+                            product_data["openDateFormatted"] = od
+                    else:
+                        product_data["openDateFormatted"] = od if od else ""
+
+                    return {
+                        "nvmid": nvmid,
+                        "success": True,
+                        "product": product_data,
+                        "error": None
+                    }
+
+            # 결과가 없어도 성공 처리 (빈 product)
             return {
                 "nvmid": nvmid,
                 "success": True,
@@ -172,39 +221,6 @@ def fetch_single_product_requests(nvmid: str, cookie_string: str, headers: dict)
                 },
                 "error": None
             }
-
-        # 결과 파싱
-        if result and isinstance(result, dict) and "result" in result:
-            product_data = result["result"]
-            if isinstance(product_data, dict):
-                # 날짜 포맷팅
-                od = product_data.get("openDate")
-                if isinstance(od, str) and "T" in od:
-                    try:
-                        product_data["openDateFormatted"] = od.replace("T", " ").split("+")[0]
-                    except Exception:
-                        product_data["openDateFormatted"] = od
-                else:
-                    product_data["openDateFormatted"] = od if od else ""
-
-                return {
-                    "nvmid": nvmid,
-                    "success": True,
-                    "product": product_data,
-                    "error": None
-                }
-
-        # 결과가 없어도 성공 처리 (빈 product)
-        return {
-            "nvmid": nvmid,
-            "success": True,
-            "product": {
-                "productTitle": "",
-                "mallName": "",
-                "openDateFormatted": ""
-            },
-            "error": None
-        }
 
     except Exception as e:
         return {
@@ -379,15 +395,6 @@ def extract_productdata_multi():
         cookies = data.get("cookies")
         client_headers = data.get("headers", {})
 
-        # 디버깅: 받은 데이터 로깅
-        import logging
-        logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger(__name__)
-        logger.info(f"받은 쿠키 길이: {len(cookies) if cookies else 0}")
-        logger.info(f"받은 헤더 수: {len(client_headers) if client_headers else 0}")
-        logger.info(f"받은 헤더 키: {list(client_headers.keys()) if client_headers else []}")
-        logger.info(f"받은 nvmids 수: {len(nvmids) if nvmids else 0}")
-
         if not nvmids:
             return jsonify({"success": False, "error": "nvmids가 필요합니다."}), 400
         if not isinstance(nvmids, list):
@@ -403,9 +410,6 @@ def extract_productdata_multi():
             "Referer": "https://sell.smartstore.naver.com/",
         }
 
-        # 디버깅: 사용할 헤더 로깅
-        logger.info(f"사용할 헤더: {headers}")
-
         # 상세 없는 "서버 오류:" 만 있는지 여부 (이 경우만 재시도 대상)
         def is_retriable_error(error_str):
             if not error_str or not isinstance(error_str, str):
@@ -416,38 +420,43 @@ def extract_productdata_multi():
             detail = s[len("서버 오류:"):].strip()
             return len(detail) == 0
 
-        # ThreadPoolExecutor를 사용하여 병렬 처리 (requests + threads)
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        # asyncio를 사용하여 batch 단위 병렬 처리 실행 (200개씩)
+        async def run_parallel(nvmid_list):
+            # Render 서버와 로컬 모두 동일한 병렬 처리 설정
+            # Rate Limiting 방지를 위해 동시 처리 수 제한
+            max_concurrent = 200    # 전체 동시 연결 수 (Rate Limiting 방지)
+            max_per_host = 200      # 호스트당 동시 연결 수
 
-        def run_parallel(nvmid_list):
-            # ThreadPoolExecutor로 requests 병렬 호출
-            results = []
-            with ThreadPoolExecutor(max_workers=1000) as executor:
-                # 모든 작업 제출
-                future_to_nvmid = {
-                    executor.submit(fetch_single_product_requests, nvmid, cookies, headers): nvmid
-                    for nvmid in nvmid_list
-                }
+            connector = aiohttp.TCPConnector(
+                limit=max_concurrent,
+                limit_per_host=max_per_host,
+                ttl_dns_cache=600,  # DNS 캐시 시간 증가
+                enable_cleanup_closed=True,  # 닫힌 연결 정리 활성화
+                force_close=False,  # 연결 재사용
+                keepalive_timeout=30,  # keep-alive 타임아웃
+            )
+            timeout = aiohttp.ClientTimeout(
+                total=30,
+                connect=10,  # 연결 타임아웃
+                sock_read=10  # 소켓 읽기 타임아웃
+            )
+            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+                tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
+                return list(await asyncio.gather(*tasks))
 
-                # 완료된 작업 순서대로 결과 수집
-                for future in as_completed(future_to_nvmid):
-                    results.append(future.result())
-
-            return results
-
-        # Batch 처리: 1000개씩 나누어 순차 처리, batch 간 0.5초 대기
-        batch_size = 1000
+        # Batch 처리: 200개씩 나누어 순차 처리, batch 간 1초 대기 (Rate Limiting 방지)
+        batch_size = 200
         all_results = []
         nvmid_to_index = {nvmid: i for i, nvmid in enumerate(nvmids)}
 
         for i in range(0, len(nvmids), batch_size):
             batch_nvmids = nvmids[i:i + batch_size]
-            batch_results = run_parallel(batch_nvmids)
+            batch_results = asyncio.run(run_parallel(batch_nvmids))
             all_results.extend(batch_results)
 
-            # 다음 batch를 위해 0.5초 대기 (마지막 batch는 제외)
+            # 다음 batch를 위해 1초 대기 (마지막 batch는 제외) - Rate Limiting 방지
             if i + batch_size < len(nvmids):
-                time.sleep(0.5)  # 동기 함수에서 time 사용
+                time.sleep(1.0)  # 동기 함수에서 time 사용
 
         # 결과 재구성
         results = [None] * len(nvmids)
@@ -462,7 +471,7 @@ def extract_productdata_multi():
 
         while retry_nvmids and retry_count < max_retries:
             retry_count += 1
-            retry_results = run_parallel(retry_nvmids)
+            retry_results = asyncio.run(run_parallel(retry_nvmids))
             for retry_result in retry_results:
                 idx = nvmid_to_index[retry_result["nvmid"]]
                 results[idx] = retry_result

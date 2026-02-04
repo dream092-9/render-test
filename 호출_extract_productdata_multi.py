@@ -8,6 +8,7 @@ nvmid 목록을 파일에서 읽어서 병렬로 상품 데이터 추출
 import sys
 import json
 import requests
+import traceback
 from pathlib import Path
 from datetime import datetime
 
@@ -114,11 +115,28 @@ def call_extract_productdata_multi(
 
     # nvmids 로드
     print("[INFO] nvmids 로드 중...")
-    nvmids = load_nvmids_from_file(Path(nvmids_path))
-    if not nvmids:
+    loaded_nvmids = load_nvmids_from_file(Path(nvmids_path))
+    if not loaded_nvmids:
         print(f"[ERROR] nvmids를 로드할 수 없습니다: {nvmids_path}")
         return
-    print(f"[OK] nvmids 로드 완료 ({len(nvmids)}개)\n")
+
+    # 중복 제거하면서 원래 인덱스 매핑 정보 저장
+    # nvmid -> (첫 번째 등장 인덱스, [중복된 인덱스들])
+    nvmid_to_indices = {}
+    for idx, nvmid in enumerate(loaded_nvmids):
+        if nvmid not in nvmid_to_indices:
+            nvmid_to_indices[nvmid] = [idx]
+        else:
+            nvmid_to_indices[nvmid].append(idx)
+
+    # 중복 제거 (순서 유지)
+    unique_nvmids = list(dict.fromkeys(loaded_nvmids))
+    duplicates = len(loaded_nvmids) - len(unique_nvmids)
+
+    print(f"[OK] nvmids 로드 완료 ({len(loaded_nvmids)}개)")
+    if duplicates > 0:
+        print(f"[INFO] 중복 {duplicates}개 발견 - 최적화하여 {len(unique_nvmids)}개만 요청")
+    print()
 
     # 쿠키 로드
     scripts_path = Path(scripts_dir)
@@ -140,16 +158,17 @@ def call_extract_productdata_multi(
         print(f"[OK] 헤더 로드 완료 ({len(headers)} items)\n")
 
     # API 요청
-    print(f"[INFO] POST 요청 전송 중... (nvmids: {len(nvmids)}개)")
+    print(f"[INFO] POST 요청 전송 중... (nvmids: {len(unique_nvmids)}개)")
     try:
         start_time = datetime.now()
 
         response = requests.post(
             f"{service_url}/extract_productdata_multi",
             json={
-                "nvmids": nvmids,
+                "nvmids": unique_nvmids,
                 "cookies": cookies,
-                "headers": headers
+                "headers": headers,
+                "concurrency": 1000  # 동시성 제한: 1000개씩 병렬 처리 (Starter 유료 티어)
             },
             headers={"Content-Type": "application/json"},
             timeout=120  # 2분 타임아웃
@@ -170,39 +189,89 @@ def call_extract_productdata_multi(
                 print(f"[INFO] 성공: {result.get('success_count')}개")
                 print(f"[INFO] 실패: {result.get('fail_count')}개")
 
-                # 결과 저장
-                results = result.get("results", [])
-                success_results = [r for r in results if r["success"]]
-                fail_results = [r for r in results if not r["success"]]
+                # 서버 응답 결과 (중복 제거된 상태)
+                unique_results = result.get("results", [])
+
+                # 중복 복원: 원래 순서대로 결과 배치
+                results = [None] * len(loaded_nvmids)
+                for unique_idx, r in enumerate(unique_results):
+                    if unique_idx < len(unique_nvmids):
+                        nvmid = unique_nvmids[unique_idx]
+                        # 해당 nvmid의 모든 인덱스 위치에 같은 결과 복사
+                        for original_idx in nvmid_to_indices[nvmid]:
+                            results[original_idx] = r
+
+                # None 객체 필터링 후 success 여부 확인
+                success_results = [r for r in results if r and isinstance(r, dict) and r.get("success")]
+                # None 객체는 실패로 처리 (서버 버그 대응)
+                fail_results = []
+                # 실패한 항목들의 nvmid를 찾기 위해 (인덱스, 결과) 쌍 저장
+                for idx, r in enumerate(results):
+                    if r is None or (r and isinstance(r, dict) and not r.get("success")):
+                        # 실패한 항목: 인덱스와 결과를 함께 저장
+                        fail_results.append((idx, r, loaded_nvmids[idx] if idx < len(loaded_nvmids) else "N/A"))
 
                 # 성공/실패 카운트 출력
+                actual_total = len(loaded_nvmids)
+                actual_success_count = len(success_results)
+                actual_fail_count = len(fail_results)
+
                 print(f"\n{'='*50}")
                 print(f"[결과 요약]")
-                print(f"  총 요청: {result.get('total')}개")
-                print(f"  성공: {result.get('success_count')}개")
-                print(f"  실패: {result.get('fail_count')}개")
-                print(f"  성공률: {result.get('success_count') / result.get('total') * 100:.1f}%")
+                print(f"  총 요청: {actual_total}개")
+                print(f"  성공: {actual_success_count}개")
+                print(f"  실패: {actual_fail_count}개")
+                if duplicates > 0:
+                    print(f"  ℹ️  중복 제거: {duplicates}개 → {len(unique_nvmids)}개 요청")
+                if actual_total > 0:
+                    print(f"  성공률: {actual_success_count / actual_total * 100:.1f}%")
+                else:
+                    print(f"  성공률: N/A (total이 0)")
                 print(f"{'='*50}\n")
 
                 # 성공한 상품 정보 출력 (처음 5개)
                 if success_results:
                     print(f"[성공한 상품 예시 (처음 5개)]")
                     for i, r in enumerate(success_results[:5]):
-                        product = r["product"]
-                        print(f"  {i+1}. NvMid: {r['nvmid']}")
-                        print(f"     상품명: {product.get('productTitle', 'N/A')}")
-                        print(f"     몰 이름: {product.get('mallName', 'N/A')}")
-                        print()
+                        nvmid = r.get('nvmid', 'N/A') if r else 'N/A'
+                        product = r.get("product") if r else None
+                        if product:  # product가 None이 아닐 때만 접근
+                            print(f"  {i+1}. NvMid: {nvmid}")
+                            print(f"     상품명: {product.get('productTitle', 'N/A')}")
+                            print(f"     몰 이름: {product.get('mallName', 'N/A')}")
+                            print()
+                        else:
+                            print(f"  {i+1}. NvMid: {nvmid}")
+                            print(f"     상품 데이터 없음")
+                            print()
 
                 # 실패한 경우 에러 출력
                 if fail_results:
                     print(f"[실패한 항목 (처음 5개)]")
-                    for i, r in enumerate(fail_results[:5]):
-                        print(f"  {i+1}. NvMid: {r['nvmid']}")
-                        print(f"     에러: {r.get('error', 'Unknown')}")
-                        print()
+                    for i, (idx, r, nvmid) in enumerate(fail_results[:5]):
+                        if r is None:
+                            print(f"  {i+1}. NvMid: {nvmid} (인덱스: {idx})")
+                            print(f"     에러: 데이터 없음 (null)")
+                            print()
+                        elif isinstance(r, dict):
+                            error = r.get('error', 'Unknown')
+                            print(f"  {i+1}. NvMid: {nvmid} (인덱스: {idx})")
+                            print(f"     에러: {error}")
+                            print()
+                        else:
+                            print(f"  {i+1}. NvMid: {nvmid} (인덱스: {idx})")
+                            print(f"     알 수 없는 형태: {type(r)}")
+                            print()
 
                 # 전체 결과 JSON 저장 (zz.json)
+                # 복원된 결과를 저장하기 위해 result 업데이트
+                result['results'] = results
+                result['total'] = len(loaded_nvmids)
+                result['success_count'] = len(success_results)
+                result['fail_count'] = len(fail_results)
+                result['original_unique_nvmids'] = len(unique_nvmids)
+                result['duplicates_removed'] = duplicates
+
                 output_filename = Path(output_dir) / "zz.json"
 
                 with open(output_filename, 'w', encoding='utf-8') as f:
@@ -211,7 +280,10 @@ def call_extract_productdata_multi(
                 print(f"[OK] 결과가 저장되었습니다: {output_filename}")
                 print(f"\n[통계]")
                 print(f"  - 총 상품 수: {len(success_results)}")
-                print(f"  - 평균 응답 시간: {elapsed / len(nvmids):.2f}초/개")
+                if len(unique_nvmids) > 0:
+                    print(f"  - 평균 응답 시간: {elapsed / len(unique_nvmids):.2f}초/개")
+                else:
+                    print(f"  - 평균 응답 시간: N/A (nvmids가 0개)")
             else:
                 print(f"[ERROR] 추출 실패: {result.get('error', '알 수 없는 오류')}")
         else:
@@ -227,6 +299,8 @@ def call_extract_productdata_multi(
         print(f"[ERROR] 요청 실패: {e}")
     except Exception as e:
         print(f"[ERROR] 예기치 않은 오류: {e}")
+        print("\n[TRACEBACK]")
+        traceback.print_exc()
 
     print("\n" + "=" * 50)
     print("[DONE] 요청 완료!")

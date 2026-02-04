@@ -420,12 +420,12 @@ def extract_productdata_multi():
             detail = s[len("서버 오류:"):].strip()
             return len(detail) == 0
 
-        # asyncio를 사용하여 batch 단위 병렬 처리 실행 (200개씩)
+        # asyncio를 사용하여 batch 단위 병렬 처리 실행 (1000개씩)
         async def run_parallel(nvmid_list):
             # Render 서버와 로컬 모두 동일한 병렬 처리 설정
-            # Rate Limiting 방지를 위해 동시 처리 수 제한
-            max_concurrent = 200    # 전체 동시 연결 수 (Rate Limiting 방지)
-            max_per_host = 200      # 호스트당 동시 연결 수
+            # Starter 유료 티어(CPU 0.5)에 최적화
+            max_concurrent = 1000   # 전체 동시 연결 수
+            max_per_host = 1000     # 호스트당 동시 연결 수
 
             connector = aiohttp.TCPConnector(
                 limit=max_concurrent,
@@ -444,8 +444,8 @@ def extract_productdata_multi():
                 tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
                 return list(await asyncio.gather(*tasks))
 
-        # Batch 처리: 200개씩 나누어 순차 처리, batch 간 1초 대기 (Rate Limiting 방지)
-        batch_size = 200
+        # Batch 처리: 1000개씩 나누어 순차 처리, batch 간 0.5초 대기
+        batch_size = 1000
         all_results = []
         nvmid_to_index = {nvmid: i for i, nvmid in enumerate(nvmids)}
 
@@ -454,9 +454,9 @@ def extract_productdata_multi():
             batch_results = asyncio.run(run_parallel(batch_nvmids))
             all_results.extend(batch_results)
 
-            # 다음 batch를 위해 1초 대기 (마지막 batch는 제외) - Rate Limiting 방지
+            # 다음 batch를 위해 0.5초 대기 (마지막 batch는 제외)
             if i + batch_size < len(nvmids):
-                time.sleep(1.0)  # 동기 함수에서 time 사용
+                time.sleep(0.5)  # 동기 함수에서 time 사용
 
         # 결과 재구성
         results = [None] * len(nvmids)

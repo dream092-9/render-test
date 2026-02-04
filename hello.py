@@ -387,10 +387,10 @@ def extract_productdata_multi():
             import os
             is_render = os.environ.get("RENDER", "") != "" or os.environ.get("PORT") != "5678"
 
-            # Render 서버: 낮은 CPU 코어 수에 맞춰 병렬 처리 수 최적화 (안정성 우선)
+            # Render 서버: 200 병렬 처리 (배치 처리 적용)
             # 로컬: 높은 병렬 처리 유지
-            max_concurrent = 100 if is_render else 500
-            max_per_host = 50 if is_render else 250
+            max_concurrent = 200 if is_render else 500
+            max_per_host = 100 if is_render else 250
 
             connector = aiohttp.TCPConnector(
                 limit=max_concurrent,
@@ -409,22 +409,48 @@ def extract_productdata_multi():
                 tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
                 return list(await asyncio.gather(*tasks))
 
-        # 1차 요청
-        results = asyncio.run(run_parallel(nvmids))
-        nvmid_to_index = {nvmid: i for i, nvmid in enumerate(nvmids)}
+        # 배치 처리: 500개 단위로 순차 처리, 배치 간 0.5초 대기
+        async def process_batches():
+            batch_size = 500
+            batch_delay = 0.5  # 배치 간 대기 시간 (초)
+            all_results = []
+            nvmid_to_index = {nvmid: i for i, nvmid in enumerate(nvmids)}
 
-        # 상세 없는 "서버 오류:" 만 있는 실패만 모아서 최대 3번 재시도
-        retry_nvmids = [r["nvmid"] for r in results if not r["success"] and is_retriable_error(r.get("error") or "")]
-        max_retries = 3
-        retry_count = 0
+            # nvmid를 배치로 분할
+            batches = [nvmids[i:i + batch_size] for i in range(0, len(nvmids), batch_size)]
 
-        while retry_nvmids and retry_count < max_retries:
-            retry_count += 1
-            retry_results = asyncio.run(run_parallel(retry_nvmids))
-            for retry_result in retry_results:
-                idx = nvmid_to_index[retry_result["nvmid"]]
-                results[idx] = retry_result
-            retry_nvmids = [r["nvmid"] for r in retry_results if not r["success"] and is_retriable_error(r.get("error") or "")]
+            for batch_idx, batch in enumerate(batches):
+                # 첫 번째 배치가 아니라면 대기
+                if batch_idx > 0:
+                    await asyncio.sleep(batch_delay)
+
+                # 배치 처리
+                batch_results = await run_parallel(batch)
+                all_results.extend(batch_results)
+
+            # 결과 병합 (순서 보장을 위해 인덱스 사용)
+            results = [None] * len(nvmids)
+            for result in all_results:
+                idx = nvmid_to_index[result["nvmid"]]
+                results[idx] = result
+
+            # 상세 없는 "서버 오류:" 만 있는 실패만 모아서 최대 3번 재시도
+            retry_nvmids = [r["nvmid"] for r in results if not r["success"] and is_retriable_error(r.get("error") or "")]
+            max_retries = 3
+            retry_count = 0
+
+            while retry_nvmids and retry_count < max_retries:
+                retry_count += 1
+                retry_results = await run_parallel(retry_nvmids)
+                for retry_result in retry_results:
+                    idx = nvmid_to_index[retry_result["nvmid"]]
+                    results[idx] = retry_result
+                retry_nvmids = [r["nvmid"] for r in retry_results if not r["success"] and is_retriable_error(r.get("error") or "")]
+
+            return results
+
+        # 비동기 배치 처리 실행
+        results = asyncio.run(process_batches())
 
         success_count = sum(1 for r in results if r["success"])
         fail_count = len(results) - success_count

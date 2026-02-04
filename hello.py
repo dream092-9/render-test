@@ -415,7 +415,6 @@ def extract_productdata_multi():
         async def run_parallel(nvmid_list):
             # Render 서버 환경에 맞춰 연결 제한 동적 조정
             import os
-            import random
             is_render = os.environ.get("RENDER", "") != "" or os.environ.get("PORT") != "5678"
 
             # Render 서버: 속도 제한 회피를 위해 낮춘 설정
@@ -436,25 +435,15 @@ def extract_productdata_multi():
                 connect=10,
                 sock_read=10
             )
-
-            all_results = []
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                # Render에서는 50개씩 청크로 나누어 처리 (감소)
-                chunk_size = 50 if is_render else 500
+                tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
+                results = list(await asyncio.gather(*tasks))
 
-                for i in range(0, len(nvmid_list), chunk_size):
-                    chunk = nvmid_list[i:i + chunk_size]
-                    tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in chunk]
-                    chunk_results = list(await asyncio.gather(*tasks))
-                    all_results.extend(chunk_results)
+                # 청크 처리 후 지연 시간 추가 (속도 제한 회피)
+                if is_render and len(nvmid_list) > 100:
+                    await asyncio.sleep(1)  # 1초 지연
 
-                    # 청크 사이에 지연 + 랜덤 추가 (속도 제한 패턴 회피)
-                    if is_render and i + chunk_size < len(nvmid_list):
-                        base_delay = 3  # 3초 기본 지연
-                        random_delay = random.uniform(0.5, 1.5)  # 0.5~1.5초 랜덤 추가
-                        await asyncio.sleep(base_delay + random_delay)
-
-            return all_results
+                return results
 
         # 1차 요청
         results = asyncio.run(run_parallel(nvmids))

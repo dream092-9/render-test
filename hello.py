@@ -139,16 +139,12 @@ async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str,
             "nvMid": nvmid
         }
 
-        # 쿠키 문자열을 딕셔너리로 변환 (requests와 동일한 방식)
-        cookie_dict = {}
-        if isinstance(cookie_string, str):
-            for item in cookie_string.split(";"):
-                if "=" in item:
-                    key, value = item.strip().split("=", 1)
-                    cookie_dict[key] = value
+        # 쿠키를 Cookie 헤더에 직접 추가 (aiohttp에서 가장 안정적인 방식)
+        request_headers = dict(headers)  # 안전하게 딕셔너리 복사
+        request_headers["Cookie"] = cookie_string
 
-        # API 요청 (비동기) - 쿠키를 cookies 파라미터로 전달
-        async with session.get(url, headers=headers, params=params, cookies=cookie_dict, timeout=aiohttp.ClientTimeout(total=10)) as response:
+        # API 요청 (비동기)
+        async with session.get(url, headers=request_headers, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
             if response.status != 200:
                 return {
                     "nvmid": nvmid,
@@ -395,6 +391,15 @@ def extract_productdata_multi():
         cookies = data.get("cookies")
         client_headers = data.get("headers", {})
 
+        # 디버깅: 받은 데이터 로깅
+        import logging
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+        logger.info(f"받은 쿠키 길이: {len(cookies) if cookies else 0}")
+        logger.info(f"받은 헤더 수: {len(client_headers) if client_headers else 0}")
+        logger.info(f"받은 헤더 키: {list(client_headers.keys()) if client_headers else []}")
+        logger.info(f"받은 nvmids 수: {len(nvmids) if nvmids else 0}")
+
         if not nvmids:
             return jsonify({"success": False, "error": "nvmids가 필요합니다."}), 400
         if not isinstance(nvmids, list):
@@ -409,6 +414,9 @@ def extract_productdata_multi():
             "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
             "Referer": "https://sell.smartstore.naver.com/",
         }
+
+        # 디버깅: 사용할 헤더 로깅
+        logger.info(f"사용할 헤더: {headers}")
 
         # 상세 없는 "서버 오류:" 만 있는지 여부 (이 경우만 재시도 대상)
         def is_retriable_error(error_str):

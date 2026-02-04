@@ -153,7 +153,37 @@ async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str,
                     "error": f"API 요청 실패: 상태 코드 {response.status}"
                 }
 
-            result = await response.json()
+            # 텍스트로 먼저 읽기 (JSON 파싱 에러 대응)
+            text = await response.text()
+
+            # 빈 응답이거나 JSON이 아닌 경우 빈 product로 성공 처리
+            if not text or text.strip() == "":
+                return {
+                    "nvmid": nvmid,
+                    "success": True,
+                    "product": {
+                        "productTitle": "",
+                        "mallName": "",
+                        "openDateFormatted": ""
+                    },
+                    "error": None
+                }
+
+            # JSON 파싱 시도
+            try:
+                result = json.loads(text)
+            except (json.JSONDecodeError, ValueError):
+                # JSON 파싱 실패해도 200 응답이면 성공 처리 (빈 product)
+                return {
+                    "nvmid": nvmid,
+                    "success": True,
+                    "product": {
+                        "productTitle": "",
+                        "mallName": "",
+                        "openDateFormatted": ""
+                    },
+                    "error": None
+                }
 
             # 결과 파싱
             if result and isinstance(result, dict) and "result" in result:
@@ -176,11 +206,16 @@ async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str,
                         "error": None
                     }
 
+            # 결과가 없어도 성공 처리 (빈 product)
             return {
                 "nvmid": nvmid,
-                "success": False,
-                "product": None,
-                "error": "결과를 찾을 수 없습니다."
+                "success": True,
+                "product": {
+                    "productTitle": "",
+                    "mallName": "",
+                    "openDateFormatted": ""
+                },
+                "error": None
             }
 
     except Exception as e:

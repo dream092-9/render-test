@@ -415,6 +415,7 @@ def extract_productdata_multi():
         async def run_parallel(nvmid_list):
             # Render 서버 환경에 맞춰 연결 제한 동적 조정
             import os
+            import random
             is_render = os.environ.get("RENDER", "") != "" or os.environ.get("PORT") != "5678"
 
             # Render 서버: 속도 제한 회피를 위해 낮춘 설정
@@ -438,8 +439,8 @@ def extract_productdata_multi():
 
             all_results = []
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                # Render에서는 100개씩 청크로 나누어 처리
-                chunk_size = 100 if is_render else 500
+                # Render에서는 50개씩 청크로 나누어 처리 (감소)
+                chunk_size = 50 if is_render else 500
 
                 for i in range(0, len(nvmid_list), chunk_size):
                     chunk = nvmid_list[i:i + chunk_size]
@@ -447,9 +448,11 @@ def extract_productdata_multi():
                     chunk_results = list(await asyncio.gather(*tasks))
                     all_results.extend(chunk_results)
 
-                    # 청크 사이에 지연 (속도 제한 회피)
+                    # 청크 사이에 지연 + 랜덤 추가 (속도 제한 패턴 회피)
                     if is_render and i + chunk_size < len(nvmid_list):
-                        await asyncio.sleep(2)  # 2초 지연
+                        base_delay = 3  # 3초 기본 지연
+                        random_delay = random.uniform(0.5, 1.5)  # 0.5~1.5초 랜덤 추가
+                        await asyncio.sleep(base_delay + random_delay)
 
             return all_results
 

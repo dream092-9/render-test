@@ -431,11 +431,14 @@ def extract_productdata_multi():
             # 결과 병합 (순서 보장을 위해 인덱스 사용)
             results = [None] * len(nvmids)
             for result in all_results:
-                idx = nvmid_to_index[result["nvmid"]]
-                results[idx] = result
+                # None 체크 및 딕셔너리 구조 확인
+                if result and isinstance(result, dict) and "nvmid" in result:
+                    idx = nvmid_to_index.get(result["nvmid"])
+                    if idx is not None:
+                        results[idx] = result
 
             # 상세 없는 "서버 오류:" 만 있는 실패만 모아서 최대 3번 재시도
-            retry_nvmids = [r["nvmid"] for r in results if not r["success"] and is_retriable_error(r.get("error") or "")]
+            retry_nvmids = [r["nvmid"] for r in results if r and not r.get("success", False) and is_retriable_error(r.get("error") or "")]
             max_retries = 3
             retry_count = 0
 
@@ -443,17 +446,19 @@ def extract_productdata_multi():
                 retry_count += 1
                 retry_results = await run_parallel(retry_nvmids)
                 for retry_result in retry_results:
-                    idx = nvmid_to_index[retry_result["nvmid"]]
-                    results[idx] = retry_result
-                retry_nvmids = [r["nvmid"] for r in retry_results if not r["success"] and is_retriable_error(r.get("error") or "")]
+                    if retry_result and isinstance(retry_result, dict) and "nvmid" in retry_result:
+                        idx = nvmid_to_index.get(retry_result["nvmid"])
+                        if idx is not None:
+                            results[idx] = retry_result
+                retry_nvmids = [r["nvmid"] for r in retry_results if r and not r.get("success", False) and is_retriable_error(r.get("error") or "")]
 
             return results
 
         # 비동기 배치 처리 실행
         results = asyncio.run(process_batches())
 
-        success_count = sum(1 for r in results if r["success"])
-        fail_count = len(results) - success_count
+        success_count = sum(1 for r in results if r and r.get("success", False))
+        fail_count = sum(1 for r in results if r and not r.get("success", False))
 
         return jsonify({
             "success": True,

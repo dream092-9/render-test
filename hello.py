@@ -139,12 +139,18 @@ async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str,
             "nvMid": nvmid
         }
 
-        # 쿠키를 Cookie 헤더에 직접 추가 (aiohttp에서 가장 안정적인 방식)
-        request_headers = dict(headers)  # 안전하게 딕셔너리 복사
-        request_headers["Cookie"] = cookie_string
+        # 쿠키 처리 (aiohttp의 cookies 파라미터 사용)
+        # 문자열에서 딕셔너리로 변환 (공백 및 특수 문자 처리)
+        cookie_dict = {}
+        if isinstance(cookie_string, str):
+            for item in cookie_string.split(";"):
+                item = item.strip()
+                if "=" in item:
+                    key, value = item.split("=", 1)
+                    cookie_dict[key.strip()] = value.strip()
 
-        # API 요청 (비동기)
-        async with session.get(url, headers=request_headers, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+        # API 요청 (비동기) - cookies 파라미터로 전달
+        async with session.get(url, headers=headers, params=params, cookies=cookie_dict, timeout=aiohttp.ClientTimeout(total=10)) as response:
             if response.status != 200:
                 return {
                     "nvmid": nvmid,

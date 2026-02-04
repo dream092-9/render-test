@@ -387,10 +387,10 @@ def extract_productdata_multi():
             import os
             is_render = os.environ.get("RENDER", "") != "" or os.environ.get("PORT") != "5678"
 
-            # Render 서버: 낮은 CPU 코어 수에 맞춰 병렬 처리 수 최적화
+            # Render 서버: 최적화된 병렬 처리 설정
             # 로컬: 높은 병렬 처리 유지
-            max_concurrent = 100 if is_render else 500
-            max_per_host = 50 if is_render else 250
+            max_concurrent = 300 if is_render else 500  # 100 → 300으로 증가
+            max_per_host = 150 if is_render else 250     # 50 → 150으로 증가
 
             connector = aiohttp.TCPConnector(
                 limit=max_concurrent,

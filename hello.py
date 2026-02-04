@@ -126,7 +126,7 @@ async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str,
     Args:
         session (aiohttp.ClientSession): aiohttp 세션
         nvmid (str): 상품 NVM ID
-        cookie_string (str): 쿠키 문자열
+        cookie_string (str): 쿠키 문자열 (그대로 헤더에 사용)
         headers (dict): 헤더 딕셔너리
 
     Returns:
@@ -139,16 +139,12 @@ async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str,
             "nvMid": nvmid
         }
 
-        # 쿠키 문자열을 딕셔너리로 변환 (requests와 동일한 방식)
-        cookie_dict = {}
-        if isinstance(cookie_string, str):
-            for item in cookie_string.split(";"):
-                if "=" in item:
-                    key, value = item.strip().split("=", 1)
-                    cookie_dict[key] = value
+        # 쿠키를 Cookie 헤더에 직접 추가 (aiohttp는 이 방식을 선호)
+        request_headers = dict(headers)  # 안전하게 딕셔너리 복사
+        request_headers["Cookie"] = cookie_string
 
-        # API 요청 (비동기) - 쿠키를 cookies 파라미터로 전달
-        async with session.get(url, headers=headers, params=params, cookies=cookie_dict, timeout=aiohttp.ClientTimeout(total=10)) as response:
+        # API 요청 (비동기)
+        async with session.get(url, headers=request_headers, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
             if response.status != 200:
                 return {
                     "nvmid": nvmid,
@@ -420,12 +416,11 @@ def extract_productdata_multi():
             detail = s[len("서버 오류:"):].strip()
             return len(detail) == 0
 
-        # asyncio를 사용하여 batch 단위 병렬 처리 실행 (200개씩)
+        # asyncio를 사용하여 batch 단위 병렬 처리 실행 (250개씩)
         async def run_parallel(nvmid_list):
             # Render 서버와 로컬 모두 동일한 병렬 처리 설정
-            # Rate Limiting 방지를 위해 동시 처리 수 제한
-            max_concurrent = 200    # 전체 동시 연결 수 (Rate Limiting 방지)
-            max_per_host = 200      # 호스트당 동시 연결 수
+            max_concurrent = 2000   # 전체 동시 연결 수
+            max_per_host = 2000     # 호스트당 동시 연결 수
 
             connector = aiohttp.TCPConnector(
                 limit=max_concurrent,
@@ -444,8 +439,8 @@ def extract_productdata_multi():
                 tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
                 return list(await asyncio.gather(*tasks))
 
-        # Batch 처리: 200개씩 나누어 순차 처리, batch 간 1초 대기 (Rate Limiting 방지)
-        batch_size = 200
+        # Batch 처리: 250개씩 나누어 순차 처리, batch 간 0.3초 대기
+        batch_size = 2000
         all_results = []
         nvmid_to_index = {nvmid: i for i, nvmid in enumerate(nvmids)}
 
@@ -454,9 +449,9 @@ def extract_productdata_multi():
             batch_results = asyncio.run(run_parallel(batch_nvmids))
             all_results.extend(batch_results)
 
-            # 다음 batch를 위해 1초 대기 (마지막 batch는 제외) - Rate Limiting 방지
+            # 다음 batch를 위해 0.3초 대기 (마지막 batch는 제외)
             if i + batch_size < len(nvmids):
-                time.sleep(1.0)  # 동기 함수에서 time 사용
+                time.sleep(0.3)  # 동기 함수에서 time 사용
 
         # 결과 재구성
         results = [None] * len(nvmids)

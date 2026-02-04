@@ -1,0 +1,19 @@
+{
+  "name": "naver-product-data-worker",
+  "version": "1.0.0",
+  "description": "Naver Product Data Scraper on Cloudflare Workers",
+  "main": "z_workers_endpoint.js",
+  "scripts": {
+    "deploy": "wrangler publish",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "naver",
+    "scraper"
+  ],
+  "author": "",
+  "license": "MIT"
+}

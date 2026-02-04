@@ -1,0 +1,18 @@
+name = "naver-product-data"
+main = "z_workers_endpoint.js"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+# 라우팅 설정 (선택사항)
+# routes = [
+#   { pattern = "your-domain.com/*", zone_name = "your-domain.com" }
+# ]
+
+# 환경 변수 (선택사항)
+# [vars]
+# API_KEY = "your-api-key"
+
+# KV 네임스페이스 (필요한 경우)
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "your-kv-namespace-id"

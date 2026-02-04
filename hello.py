@@ -435,15 +435,23 @@ def extract_productdata_multi():
                 connect=10,
                 sock_read=10
             )
+
+            all_results = []
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
-                results = list(await asyncio.gather(*tasks))
+                # Render에서는 100개씩 청크로 나누어 처리
+                chunk_size = 100 if is_render else 500
 
-                # 청크 처리 후 지연 시간 추가 (속도 제한 회피)
-                if is_render and len(nvmid_list) > 100:
-                    await asyncio.sleep(1)  # 1초 지연
+                for i in range(0, len(nvmid_list), chunk_size):
+                    chunk = nvmid_list[i:i + chunk_size]
+                    tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in chunk]
+                    chunk_results = list(await asyncio.gather(*tasks))
+                    all_results.extend(chunk_results)
 
-                return results
+                    # 청크 사이에 지연 (속도 제한 회피)
+                    if is_render and i + chunk_size < len(nvmid_list):
+                        await asyncio.sleep(2)  # 2초 지연
+
+            return all_results
 
         # 1차 요청
         results = asyncio.run(run_parallel(nvmids))

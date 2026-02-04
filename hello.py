@@ -422,9 +422,9 @@ def extract_productdata_multi():
             import os
             is_render = os.environ.get("RENDER", "") != "" or os.environ.get("PORT") != "5678"
 
-            # Render 서버와 로컬 모두 최대 병렬 처리
-            max_concurrent = 1000  # 전체 동시 연결 수
-            max_per_host = 1000    # 호스트당 동시 연결 수
+            # 안정적인 병렬 처리 설정 (메모리 안정성 확보)
+            max_concurrent = 500   # 전체 동시 연결 수 (안정적)
+            max_per_host = 500     # 호스트당 동시 연결 수
 
             connector = aiohttp.TCPConnector(
                 limit=max_concurrent,

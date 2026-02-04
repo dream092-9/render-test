@@ -407,7 +407,8 @@ def extract_productdata_multi():
             )
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
                 tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
-                return list(await asyncio.gather(*tasks))
+                # return_exceptions=True: 예외 발생 시 전체 실패 대신 예외 객체 반환
+                return list(await asyncio.gather(*tasks, return_exceptions=True))
 
         # 배치 처리: 500개 단위로 순차 처리, 배치 간 0.5초 대기
         async def process_batches():
@@ -432,7 +433,13 @@ def extract_productdata_multi():
             results = [None] * len(nvmids)
             for result in all_results:
                 # None 체크 및 딕셔너리 구조 확인
-                if result and isinstance(result, dict) and "nvmid" in result:
+                if result is None:
+                    continue
+                # 예외 객체 처리
+                if isinstance(result, BaseException):
+                    # 예외 객체는 건너뛰기 (추후 로깅 가능)
+                    continue
+                if isinstance(result, dict) and "nvmid" in result:
                     idx = nvmid_to_index.get(result["nvmid"])
                     if idx is not None:
                         results[idx] = result

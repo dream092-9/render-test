@@ -126,7 +126,7 @@ async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str,
     Args:
         session (aiohttp.ClientSession): aiohttp 세션
         nvmid (str): 상품 NVM ID
-        cookie_string (str): 쿠키 문자열 (그대로 헤더에 사용)
+        cookie_string (str): 쿠키 문자열
         headers (dict): 헤더 딕셔너리
 
     Returns:
@@ -139,12 +139,16 @@ async def fetch_single_product_async(session: aiohttp.ClientSession, nvmid: str,
             "nvMid": nvmid
         }
 
-        # 쿠키를 Cookie 헤더에 직접 추가 (aiohttp는 이 방식을 선호)
-        request_headers = dict(headers)  # 안전하게 딕셔너리 복사
-        request_headers["Cookie"] = cookie_string
+        # 쿠키 문자열을 딕셔너리로 변환 (requests와 동일한 방식)
+        cookie_dict = {}
+        if isinstance(cookie_string, str):
+            for item in cookie_string.split(";"):
+                if "=" in item:
+                    key, value = item.strip().split("=", 1)
+                    cookie_dict[key] = value
 
-        # API 요청 (비동기)
-        async with session.get(url, headers=request_headers, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+        # API 요청 (비동기) - 쿠키를 cookies 파라미터로 전달
+        async with session.get(url, headers=headers, params=params, cookies=cookie_dict, timeout=aiohttp.ClientTimeout(total=10)) as response:
             if response.status != 200:
                 return {
                     "nvmid": nvmid,

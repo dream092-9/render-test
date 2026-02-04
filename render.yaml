@@ -6,4 +6,9 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn hello:app --bind 0.0.0.0:$PORT
+    startCommand: gunicorn hello:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --worker-connections 200
+    envVars:
+      - key: GUNICORN_TIMEOUT
+        value: 120
+      - key: WEB_CONCURRENCY
+        value: 1

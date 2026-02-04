@@ -422,9 +422,9 @@ def extract_productdata_multi():
             import os
             is_render = os.environ.get("RENDER", "") != "" or os.environ.get("PORT") != "5678"
 
-            # 안정적인 병렬 처리 설정 (메모리 안정성 확보)
-            max_concurrent = 500   # 전체 동시 연결 수 (안정적)
-            max_per_host = 500     # 호스트당 동시 연결 수
+            # 메모리 안정성을 위한 보수적 병렬 처리 설정
+            max_concurrent = 200   # 전체 동시 연결 수 (메모리 안정성)
+            max_per_host = 200     # 호스트당 동시 연결 수
 
             connector = aiohttp.TCPConnector(
                 limit=max_concurrent,

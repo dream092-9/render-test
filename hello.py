@@ -371,27 +371,61 @@ def extract_productdata_multi():
             "Referer": "https://sell.smartstore.naver.com/",
         }
 
+        # 상세 없는 "서버 오류:" 만 있는지 여부 (이 경우만 재시도 대상)
+        def is_retriable_error(error_str):
+            if not error_str or not isinstance(error_str, str):
+                return False
+            s = error_str.strip()
+            if not s.startswith("서버 오류:"):
+                return False
+            detail = s[len("서버 오류:"):].strip()
+            return len(detail) == 0
+
         # asyncio를 사용하여 완전 비동기 병렬 처리 실행
-        # Flask[async] 없이도 내부적으로 asyncio.run()으로 실행
-        async def run_parallel():
-            # aiohttp 커넥터 설정 (대규모 병렬 처리를 위한 최적화)
+        async def run_parallel(nvmid_list):
+            # Render 서버 환경에 맞춰 연결 제한 동적 조정
+            import os
+            is_render = os.environ.get("RENDER", "") != "" or os.environ.get("PORT") != "5678"
+
+            # Render 서버: 낮은 CPU 코어 수에 맞춰 병렬 처리 수 최적화
+            # 로컬: 높은 병렬 처리 유지
+            max_concurrent = 100 if is_render else 500
+            max_per_host = 50 if is_render else 250
+
             connector = aiohttp.TCPConnector(
-                limit=500,  # 최대 연결 수 (동시에 500개까지 처리)
-                limit_per_host=250,  # 호스트당 최대 연결 수
-                ttl_dns_cache=300,  # DNS 캐시 TTL
+                limit=max_concurrent,
+                limit_per_host=max_per_host,
+                ttl_dns_cache=600,  # DNS 캐시 시간 증가
+                enable_cleanup_closed=True,  # 닫힌 연결 정리 활성화
+                force_close=False,  # 연결 재사용
+                keepalive_timeout=30,  # keep-alive 타임아웃
             )
-
-            timeout = aiohttp.ClientTimeout(total=30)  # 전체 타임아웃 30초
-
+            timeout = aiohttp.ClientTimeout(
+                total=30,
+                connect=10,  # 연결 타임아웃
+                sock_read=10  # 소켓 읽기 타임아웃
+            )
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmids]
-                results = await asyncio.gather(*tasks)
-            return results
+                tasks = [fetch_single_product_async(session, nvmid, cookies, headers) for nvmid in nvmid_list]
+                return list(await asyncio.gather(*tasks))
 
-        # 동기 컨텍스트에서 비동기 함수 실행
-        results = asyncio.run(run_parallel())
+        # 1차 요청
+        results = asyncio.run(run_parallel(nvmids))
+        nvmid_to_index = {nvmid: i for i, nvmid in enumerate(nvmids)}
 
-        # 성공/실패 통계
+        # 상세 없는 "서버 오류:" 만 있는 실패만 모아서 최대 3번 재시도
+        retry_nvmids = [r["nvmid"] for r in results if not r["success"] and is_retriable_error(r.get("error") or "")]
+        max_retries = 3
+        retry_count = 0
+
+        while retry_nvmids and retry_count < max_retries:
+            retry_count += 1
+            retry_results = asyncio.run(run_parallel(retry_nvmids))
+            for retry_result in retry_results:
+                idx = nvmid_to_index[retry_result["nvmid"]]
+                results[idx] = retry_result
+            retry_nvmids = [r["nvmid"] for r in retry_results if not r["success"] and is_retriable_error(r.get("error") or "")]
+
         success_count = sum(1 for r in results if r["success"])
         fail_count = len(results) - success_count
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Render에 배포된 /extract_productdata_multi 엔드포인트 호출 스크립트
+로컬 서버의 /extract_productdata_multi 엔드포인트 호출 스크립트
 nvmid 목록을 파일에서 읽어서 병렬로 상품 데이터 추출
-사용법: python 호출_extract_productdata_multi.py
+사용법: python local_호출_extract_productdata_multi.py
 """
 import sys
 import json
@@ -95,21 +95,21 @@ def load_headers_from_file(cookies_path: Path) -> dict:
 
 
 def call_extract_productdata_multi(
-    service_url: str = "https://hello-world-fo9c.onrender.com",
+    service_url: str = "http://localhost:5678",
     nvmids_path: str = r"D:\render_test\z_nvmids.txt",
     scripts_dir: str = r"D:\scorebill_V2\scripts",
     output_dir: str = r"D:\render_test"
 ):
     """
-    Render 서비스의 /extract_productdata_multi 엔드포인트를 호출합니다.
+    로컬 서버의 /extract_productdata_multi 엔드포인트를 호출합니다.
 
     Args:
-        service_url (str): Render 서비스 URL
+        service_url (str): 로컬 서버 URL
         nvmids_path (str): nvmids 파일 경로
         scripts_dir (str): 스크립트 디렉토리 경로 (쿠키 파일 위치)
         output_dir (str): 결과 JSON 저장 경로
     """
-    print(f"[START] Render 서비스 호출 중: {service_url}/extract_productdata_multi")
+    print(f"[START] 로컬 서버 호출 중: {service_url}/extract_productdata_multi")
     print(f"[INFO] nvmids 파일: {nvmids_path}")
     print(f"[INFO] 스크립트 디렉토리: {scripts_dir}\n")
 
@@ -306,8 +306,8 @@ def call_extract_productdata_multi(
 
 
 if __name__ == "__main__":
-    # 인자 파싈
-    service_url = sys.argv[1] if len(sys.argv) > 1 else "https://hello-world-fo9c.onrender.com"
+    # 인자 파싱
+    service_url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:5678"
     nvmids_path = sys.argv[2] if len(sys.argv) > 2 else r"D:\render_test\z_nvmids.txt"
     scripts_dir = sys.argv[3] if len(sys.argv) > 3 else r"D:\scorebill_V2\scripts"
     output_dir = sys.argv[4] if len(sys.argv) > 4 else r"D:\render_test"

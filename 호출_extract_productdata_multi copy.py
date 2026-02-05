@@ -168,6 +168,7 @@ def call_extract_productdata_multi(
                 "nvmids": unique_nvmids,
                 "cookies": cookies,
                 "headers": headers,
+                "concurrency": 1000  # 동시성 제한: 200개씩 병렬 처리
             },
             headers={"Content-Type": "application/json"},
             timeout=120  # 2분 타임아웃
